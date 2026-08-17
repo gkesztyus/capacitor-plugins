@@ -180,6 +180,49 @@ export interface PositionOptions {
    * @since 1.0.0
    */
   maximumAge?: number;
+
+  /**
+   * Desired interval between native location updates in milliseconds.
+   *
+   * @default 1000
+   */
+  interval?: number;
+
+  /**
+   * Fastest accepted interval between native location updates in milliseconds.
+   *
+   * @default interval / 2
+   */
+  minimumUpdateInterval?: number;
+
+  /**
+   * Longest delay allowed before a native location update is delivered.
+   * Set this to the same value as interval to disable Android batching.
+   *
+   * @default interval
+   */
+  maximumUpdateDelay?: number;
+
+  /**
+   * Minimum movement in metres required for a new location update.
+   *
+   * @default 0
+   */
+  minimumUpdateDistance?: number;
+
+  /**
+   * Keep delivering location updates while the app is in the background.
+   * Android displays a persistent notification while this is enabled.
+   *
+   * @default false
+   */
+  background?: boolean;
+
+  /** Android foreground-service notification title. */
+  backgroundTitle?: string;
+
+  /** Android foreground-service notification text. */
+  backgroundMessage?: string;
 }
 
 export type WatchPositionCallback = (

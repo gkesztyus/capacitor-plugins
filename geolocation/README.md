@@ -172,11 +172,18 @@ Request location permissions.  Will throw if system location services are disabl
 
 #### PositionOptions
 
-| Prop                     | Type                 | Description                                                                                                                                                                           | Default            | Since |
-| ------------------------ | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ | ----- |
-| **`enableHighAccuracy`** | <code>boolean</code> | High accuracy mode (such as GPS, if available) On Android 12+ devices it will be ignored if users didn't grant ACCESS_FINE_LOCATION permissions (can be checked with location alias). | <code>false</code> | 1.0.0 |
-| **`timeout`**            | <code>number</code>  | The maximum wait time in milliseconds for location updates. In Android, since version 4.0.0 of the plugin, timeout gets ignored for getCurrentPosition.                               | <code>10000</code> | 1.0.0 |
-| **`maximumAge`**         | <code>number</code>  | The maximum age in milliseconds of a possible cached position that is acceptable to return                                                                                            | <code>0</code>     | 1.0.0 |
+| Prop                        | Type                 | Description                                                                                                                                                                           | Default                   | Since |
+| --------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- | ----- |
+| **`enableHighAccuracy`**    | <code>boolean</code> | High accuracy mode (such as GPS, if available) On Android 12+ devices it will be ignored if users didn't grant ACCESS_FINE_LOCATION permissions (can be checked with location alias). | <code>false</code>        | 1.0.0 |
+| **`timeout`**               | <code>number</code>  | The maximum wait time in milliseconds for location updates. In Android, since version 4.0.0 of the plugin, timeout gets ignored for getCurrentPosition.                               | <code>10000</code>        | 1.0.0 |
+| **`maximumAge`**            | <code>number</code>  | The maximum age in milliseconds of a possible cached position that is acceptable to return                                                                                            | <code>0</code>            | 1.0.0 |
+| **`interval`**              | <code>number</code>  | Desired interval between native location updates in milliseconds.                                                                                                                     | <code>1000</code>         |       |
+| **`minimumUpdateInterval`** | <code>number</code>  | Fastest accepted interval between native location updates in milliseconds.                                                                                                            | <code>interval / 2</code> |       |
+| **`maximumUpdateDelay`**    | <code>number</code>  | Longest delay allowed before a native location update is delivered. Set this to the same value as interval to disable Android batching.                                               | <code>interval</code>     |       |
+| **`minimumUpdateDistance`** | <code>number</code>  | Minimum movement in metres required for a new location update.                                                                                                                        | <code>0</code>            |       |
+| **`background`**            | <code>boolean</code> | Keep delivering location updates while the app is in the background. Android displays a persistent notification while this is enabled.                                                | <code>false</code>        |       |
+| **`backgroundTitle`**       | <code>string</code>  | Android foreground-service notification title.                                                                                                                                        |                           |       |
+| **`backgroundMessage`**     | <code>string</code>  | Android foreground-service notification text.                                                                                                                                         |                           |       |
 
 
 #### ClearWatchOptions

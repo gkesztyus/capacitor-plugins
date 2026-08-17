@@ -74,6 +74,7 @@ dependencies {
     }
 
     implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.localbroadcastmanager:localbroadcastmanager:1.1.0"
     implementation "com.google.android.gms:play-services-location:$playServicesLocationVersion"
     testImplementation "junit:junit:$junitVersion"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"

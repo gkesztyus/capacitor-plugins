@@ -1,8 +1,20 @@
 package com.capacitorjs.plugins.geolocation;
 
 import android.Manifest;
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
+import android.content.BroadcastReceiver;
+import android.content.ComponentName;
+import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
+import android.content.ServiceConnection;
 import android.location.Location;
 import android.os.Build;
+import android.os.IBinder;
+import androidx.localbroadcastmanager.content.LocalBroadcastManager;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.PermissionState;
 import com.getcapacitor.Plugin;
@@ -30,16 +42,59 @@ public class GeolocationPlugin extends Plugin {
     static final String COARSE_LOCATION = "coarseLocation";
     private Geolocation implementation;
     private Map<String, PluginCall> watchingCalls = new HashMap<>();
+    private GeolocationBackgroundService.LocalBinder backgroundService;
+    private ServiceConnection backgroundServiceConnection;
+    private BroadcastReceiver backgroundLocationReceiver;
 
     @Override
     public void load() {
         implementation = new Geolocation(getContext());
+        createBackgroundNotificationChannel();
+
+        backgroundServiceConnection =
+            new ServiceConnection() {
+                @Override
+                public void onServiceConnected(ComponentName name, IBinder binder) {
+                    backgroundService = (GeolocationBackgroundService.LocalBinder) binder;
+                    for (PluginCall call : watchingCalls.values()) {
+                        if (call.getBoolean("background", false)) {
+                            startBackgroundWatch(call);
+                        }
+                    }
+                }
+
+                @Override
+                public void onServiceDisconnected(ComponentName name) {
+                    backgroundService = null;
+                }
+            };
+        getContext()
+            .bindService(
+                new Intent(getContext(), GeolocationBackgroundService.class),
+                backgroundServiceConnection,
+                Context.BIND_AUTO_CREATE
+            );
+
+        backgroundLocationReceiver =
+            new BroadcastReceiver() {
+                @Override
+                public void onReceive(Context context, Intent intent) {
+                    String callbackId = intent.getStringExtra("id");
+                    PluginCall call = watchingCalls.get(callbackId);
+                    Location location = intent.getParcelableExtra("location");
+                    if (call != null && location != null) {
+                        call.resolve(getJSObjectForLocation(location));
+                    }
+                }
+            };
+        LocalBroadcastManager
+            .getInstance(getContext())
+            .registerReceiver(backgroundLocationReceiver, new IntentFilter(GeolocationBackgroundService.ACTION_LOCATION));
     }
 
     @Override
     protected void handleOnPause() {
         super.handleOnPause();
-        // Clear all location updates on pause to avoid possible background location calls
         implementation.clearLocationUpdates();
     }
 
@@ -47,7 +102,9 @@ public class GeolocationPlugin extends Plugin {
     protected void handleOnResume() {
         super.handleOnResume();
         for (PluginCall call : watchingCalls.values()) {
-            startWatch(call);
+            if (!call.getBoolean("background", false)) {
+                startWatch(call);
+            }
         }
     }
 
@@ -171,11 +228,23 @@ public class GeolocationPlugin extends Plugin {
 
     @SuppressWarnings("MissingPermission")
     private void startWatch(final PluginCall call) {
-        int timeout = call.getInt("timeout", 10000);
+        long interval = Math.max(call.getLong("interval", 1000L), 0L);
+        long minimumUpdateInterval = Math.min(Math.max(call.getLong("minimumUpdateInterval", Math.max(interval / 2, 0L)), 0L), interval);
+        long maximumUpdateDelay = Math.max(call.getLong("maximumUpdateDelay", interval), interval);
+        float minimumUpdateDistance = Math.max(call.getFloat("minimumUpdateDistance", 0f), 0f);
+
+        watchingCalls.put(call.getCallbackId(), call);
+        if (call.getBoolean("background", false)) {
+            startBackgroundWatch(call);
+            return;
+        }
 
         implementation.requestLocationUpdates(
             isHighAccuracy(call),
-            timeout,
+            interval,
+            minimumUpdateInterval,
+            maximumUpdateDelay,
+            minimumUpdateDistance,
             new LocationResultCallback() {
                 @Override
                 public void success(Location location) {
@@ -188,8 +257,32 @@ public class GeolocationPlugin extends Plugin {
                 }
             }
         );
+    }
 
-        watchingCalls.put(call.getCallbackId(), call);
+    private void startBackgroundWatch(PluginCall call) {
+        if (backgroundService == null) {
+            return;
+        }
+
+        long interval = Math.max(call.getLong("interval", 1000L), 0L);
+        long minimumUpdateInterval = Math.min(Math.max(call.getLong("minimumUpdateInterval", Math.max(interval / 2, 0L)), 0L), interval);
+        long maximumUpdateDelay = Math.max(call.getLong("maximumUpdateDelay", interval), interval);
+        float minimumUpdateDistance = Math.max(call.getFloat("minimumUpdateDistance", 0f), 0f);
+
+        if (
+            !backgroundService.addWatcher(
+                call.getCallbackId(),
+                createBackgroundNotification(call),
+                isHighAccuracy(call),
+                interval,
+                minimumUpdateInterval,
+                maximumUpdateDelay,
+                minimumUpdateDistance
+            )
+        ) {
+            watchingCalls.remove(call.getCallbackId());
+            call.reject("Failed to start background location updates");
+        }
     }
 
     /**
@@ -205,6 +298,9 @@ public class GeolocationPlugin extends Plugin {
         if (callbackId != null) {
             PluginCall removed = watchingCalls.remove(callbackId);
             if (removed != null) {
+                if (removed.getBoolean("background", false) && backgroundService != null) {
+                    backgroundService.removeWatcher(callbackId);
+                }
                 removed.release(bridge);
             }
 
@@ -233,6 +329,58 @@ public class GeolocationPlugin extends Plugin {
         coords.put("speed", location.getSpeed());
         coords.put("heading", location.getBearing());
         return ret;
+    }
+
+    private void createBackgroundNotificationChannel() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            return;
+        }
+
+        NotificationManager manager = (NotificationManager) getContext().getSystemService(Context.NOTIFICATION_SERVICE);
+        NotificationChannel channel = new NotificationChannel(
+            GeolocationBackgroundService.class.getName(),
+            "Játék közbeni helymegosztás",
+            NotificationManager.IMPORTANCE_LOW
+        );
+        channel.setSound(null, null);
+        channel.enableVibration(false);
+        manager.createNotificationChannel(channel);
+    }
+
+    private Notification createBackgroundNotification(PluginCall call) {
+        String title = call.getString("backgroundTitle", "GrillParty helymegosztás");
+        String message = call.getString("backgroundMessage", "A játék alatt megosztjuk a pozíciódat.");
+        Notification.Builder builder = new Notification.Builder(getContext())
+            .setContentTitle(title)
+            .setContentText(message)
+            .setOngoing(true)
+            .setSmallIcon(getContext().getApplicationInfo().icon)
+            .setCategory(Notification.CATEGORY_SERVICE);
+
+        Intent launchIntent = getContext().getPackageManager().getLaunchIntentForPackage(getContext().getPackageName());
+        if (launchIntent != null) {
+            builder.setContentIntent(
+                PendingIntent.getActivity(getContext(), 0, launchIntent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE)
+            );
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            builder.setChannelId(GeolocationBackgroundService.class.getName());
+        }
+        return builder.build();
+    }
+
+    @Override
+    protected void handleOnDestroy() {
+        if (backgroundService != null) {
+            backgroundService.stopService();
+        }
+        if (backgroundLocationReceiver != null) {
+            LocalBroadcastManager.getInstance(getContext()).unregisterReceiver(backgroundLocationReceiver);
+        }
+        if (backgroundServiceConnection != null) {
+            getContext().unbindService(backgroundServiceConnection);
+        }
+        super.handleOnDestroy();
     }
 
     private String getAlias(PluginCall call) {

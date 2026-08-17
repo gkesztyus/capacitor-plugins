@@ -46,12 +46,31 @@ public class GeolocationPlugin: CAPPlugin, CLLocationManagerDelegate {
 
             if call.getBool("enableHighAccuracy", false) == true {
                 self.locationManager.desiredAccuracy = kCLLocationAccuracyBestForNavigation
+                self.locationManager.activityType = .automotiveNavigation
             } else {
                 self.locationManager.desiredAccuracy = kCLLocationAccuracyThreeKilometers
+                self.locationManager.activityType = .other
             }
 
+            let minimumUpdateDistance = call.getDouble("minimumUpdateDistance", 0)
+            self.locationManager.distanceFilter = minimumUpdateDistance > 0
+                ? minimumUpdateDistance
+                : kCLDistanceFilterNone
+            let background = call.getBool("background", false)
+            self.locationManager.allowsBackgroundLocationUpdates = background
+            self.locationManager.showsBackgroundLocationIndicator = background
+            self.locationManager.pausesLocationUpdatesAutomatically = !background
+
             if CLLocationManager.authorizationStatus() == .notDetermined {
-                self.locationManager.requestWhenInUseAuthorization()
+                if background {
+                    self.locationManager.requestAlwaysAuthorization()
+                } else {
+                    self.locationManager.requestWhenInUseAuthorization()
+                }
+            } else if background && CLLocationManager.authorizationStatus() == .authorizedWhenInUse {
+                self.locationManager.requestAlwaysAuthorization()
+                self.locationManager.startUpdatingLocation()
+                self.isUpdatingLocation = true
             } else {
                 self.locationManager.startUpdatingLocation()
                 self.isUpdatingLocation = true
@@ -67,11 +86,16 @@ public class GeolocationPlugin: CAPPlugin, CLLocationManagerDelegate {
 
         if let savedCall = bridge?.savedCall(withID: callbackId) {
             bridge?.releaseCall(savedCall)
-
-            self.stopUpdating()
         }
 
         callQueue.removeValue(forKey: callbackId)
+
+        if callQueue.values.allSatisfy({ $0 != .watch }) {
+            self.stopUpdating()
+            self.locationManager.allowsBackgroundLocationUpdates = false
+            self.locationManager.showsBackgroundLocationIndicator = false
+            self.locationManager.pausesLocationUpdatesAutomatically = true
+        }
 
         call.resolve()
     }
@@ -139,7 +163,7 @@ public class GeolocationPlugin: CAPPlugin, CLLocationManagerDelegate {
     }
 
     private func reportLocation(_ call: CAPPluginCall, _ locations: [CLLocation]) {
-        if let location = locations.first {
+        if let location = locations.last {
             let result = makePosition(location)
             call.resolve(result)
         } else {
